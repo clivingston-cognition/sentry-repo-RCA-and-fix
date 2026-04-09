@@ -104,50 +104,60 @@ Error: Failed to process order X: invalid total (NaN)
 
 ## Setting Up Event-Driven Devin Sessions
 
-### Step 1: Create a Sentry Alert Rule
+### Step 1: Install the Sentry MCP Integration
+
+The Sentry MCP gives Devin direct access to query issues, stack traces, and event data:
+
+1. Go to your [Devin MCP Marketplace settings](/settings/mcp-marketplace/setup/sentry)
+2. Click **Install** and provide your Sentry auth token
+3. Devin can now use `mcp_tool: sentry` to list issues, get stack traces, update issue status, etc.
+
+> **What the Sentry MCP enables:**
+> - `list_issues` — Search/filter Sentry issues by project, status, query
+> - `get_issue` — Get full issue details (title, type, frequency, assignee)
+> - `get_latest_event` — Get the latest event with full stack trace + request context
+> - `update_issue` — Resolve issues, assign them, update tags
+> - `search_issues` — Full-text search across issues and alerts
+
+### Step 2: Create a Sentry Alert Rule
 
 In your Sentry project:
 1. Go to **Alerts > Create Alert Rule**
 2. Set conditions (e.g., "A new issue is created")
 3. Under **Actions**, select **Send a notification via an integration > Webhooks**
-4. Set the webhook URL to trigger the Devin API (see Step 2)
+4. Set the webhook URL to trigger the Devin API (see Step 3)
 
-### Step 2: Configure the Devin API Webhook
+### Step 3: Configure the Devin API Webhook
 
-You have two options for triggering Devin from Sentry:
-
-#### Option A: Direct Devin API Call (Recommended)
-
-Create a small webhook relay (e.g., on Vercel, AWS Lambda, or Cloudflare Workers) that:
-1. Receives the Sentry webhook payload
-2. Extracts the error details (title, stacktrace, issue URL)
-3. Calls the Devin API to create a new session:
+Create a Sentry webhook that calls the Devin API to start an event-driven session:
 
 ```bash
 curl -X POST "https://api.devin.ai/v1/sessions" \
   -H "Authorization: Bearer ${DEVIN_API_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Sentry Alert RCA: A new error was detected in sentry-repo-RCA-and-fix.\n\nError: TypeError: Cannot read properties of undefined (reading '\''name'\'')\nFile: src/routes/users.js:33\nEndpoint: GET /api/users/:id\n\nSentry Issue: https://your-org.sentry.io/issues/12345/\n\nPlease investigate the root cause, implement a fix, and create a PR.",
+    "prompt": "A new Sentry alert fired for sentry-repo-RCA-and-fix.\n\nSentry Issue: https://your-org.sentry.io/issues/12345/\n\nUse the Sentry MCP to retrieve the full issue details and stack trace, then investigate the root cause in the codebase, implement a fix, and create a PR.",
     "playbook_id": "<your-playbook-id>"
   }'
 ```
 
-#### Option B: Sentry Integration via Devin App
+You can set up a small webhook relay (e.g., on Vercel, AWS Lambda, or Cloudflare Workers) to:
+1. Receive the Sentry webhook payload
+2. Extract the Sentry issue URL
+3. Call the Devin API with the prompt above
 
-If your organization has the Devin Sentry integration installed:
-1. Go to **Sentry > Settings > Integrations > Devin**
-2. Configure the integration to auto-trigger sessions on new issues
-3. Devin will automatically pick up the `.devin/playbooks/sentry-rca.md` playbook
+Because Devin has the **Sentry MCP** installed, it will pull the full stack trace and error details directly from Sentry — no need to parse the webhook payload yourself.
 
-### Step 3: Demo Flow
+### Step 4: Demo Flow
 
 1. Start the API server: `npm start`
 2. Trigger a bug: `npm run trigger:null-ref`
 3. Watch Sentry create a new issue
 4. The alert rule fires the webhook → Devin session starts
-5. Devin investigates, finds root cause, creates a fix PR
-6. Measure MTTR: time from Sentry alert to PR creation
+5. Devin uses the Sentry MCP to query the issue details and stack trace
+6. Devin investigates the codebase, finds root cause, creates a fix PR
+7. Devin resolves the Sentry issue via MCP
+8. Measure MTTR: time from Sentry alert to PR creation
 
 ## API Endpoints
 
