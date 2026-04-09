@@ -120,43 +120,55 @@ router.post("/", (req, res) => {
  *
  *    This causes an UnhandledPromiseRejection that Sentry will capture.
  */
-router.get("/process-queue", (_req, res) => {
-  const pendingOrders = getDb()
-    .prepare("SELECT * FROM orders WHERE status = 'pending'")
-    .all();
+router.get("/process-queue", async (_req, res, next) => {
+  try {
+    const pendingOrders = getDb()
+      .prepare("SELECT * FROM orders WHERE status = 'pending'")
+      .all();
 
-  if (pendingOrders.length === 0) {
-    return res.json({ message: "No pending orders to process", processed: 0 });
-  }
-
-  // Simulate async order processing
-  const processOrder = async (order) => {
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // BUG: This will reject for certain orders but the rejection is unhandled
-    if (order.total === 0 || isNaN(order.total)) {
-      throw new Error(
-        `Failed to process order ${order.id}: invalid total (${order.total}). ` +
-        `Order may have been created with invalid item quantities.`
-      );
+    if (pendingOrders.length === 0) {
+      return res.json({ message: "No pending orders to process", processed: 0 });
     }
 
-    // Simulate successful processing
-    getDb()
-      .prepare("UPDATE orders SET status = 'processed' WHERE id = ?")
-      .run(order.id);
-  };
+    const processOrder = async (order) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // BUG: forEach does not await async callbacks — unhandled promise rejections
-  pendingOrders.forEach((order) => {
-    processOrder(order);
-  });
+      if (order.total === 0 || isNaN(order.total)) {
+        throw new Error(
+          `Failed to process order ${order.id}: invalid total (${order.total}). ` +
+          `Order may have been created with invalid item quantities.`
+        );
+      }
 
-  res.json({
-    message: `Processing ${pendingOrders.length} orders`,
-    processed: pendingOrders.length,
-  });
+      getDb()
+        .prepare("UPDATE orders SET status = 'processed' WHERE id = ?")
+        .run(order.id);
+    };
+
+    const results = await Promise.allSettled(
+      pendingOrders.map((order) => processOrder(order))
+    );
+
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected");
+
+    if (failed.length > 0) {
+      const errors = failed.map((r) => r.reason.message);
+      return res.status(207).json({
+        message: `Processed ${succeeded} of ${pendingOrders.length} orders; ${failed.length} failed`,
+        processed: succeeded,
+        failed: failed.length,
+        errors,
+      });
+    }
+
+    res.json({
+      message: `Successfully processed ${succeeded} orders`,
+      processed: succeeded,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
