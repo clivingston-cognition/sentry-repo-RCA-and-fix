@@ -28,7 +28,10 @@ router.get("/:id", (req, res) => {
     .prepare("SELECT * FROM users WHERE id = ?")
     .get(req.params.id);
 
-  // BUG: no null check — will throw TypeError when user is undefined
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
   const displayName = user.name.toUpperCase();
 
   res.json({
