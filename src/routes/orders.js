@@ -120,7 +120,7 @@ router.post("/", (req, res) => {
  *
  *    This causes an UnhandledPromiseRejection that Sentry will capture.
  */
-router.get("/process-queue", (_req, res) => {
+router.get("/process-queue", async (_req, res) => {
   const pendingOrders = getDb()
     .prepare("SELECT * FROM orders WHERE status = 'pending'")
     .all();
@@ -134,7 +134,6 @@ router.get("/process-queue", (_req, res) => {
     // Simulate processing delay
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // BUG: This will reject for certain orders but the rejection is unhandled
     if (order.total === 0 || isNaN(order.total)) {
       throw new Error(
         `Failed to process order ${order.id}: invalid total (${order.total}). ` +
@@ -148,14 +147,27 @@ router.get("/process-queue", (_req, res) => {
       .run(order.id);
   };
 
-  // BUG: forEach does not await async callbacks — unhandled promise rejections
-  pendingOrders.forEach((order) => {
-    processOrder(order);
-  });
+  // Use Promise.allSettled to await all async callbacks and handle rejections
+  const results = await Promise.allSettled(
+    pendingOrders.map((order) => processOrder(order))
+  );
+
+  const succeeded = results.filter((r) => r.status === "fulfilled").length;
+  const failed = results.filter((r) => r.status === "rejected");
+
+  if (failed.length > 0) {
+    const errors = failed.map((r) => r.reason.message);
+    return res.status(207).json({
+      message: `Processed ${succeeded} of ${pendingOrders.length} orders; ${failed.length} failed`,
+      processed: succeeded,
+      failed: failed.length,
+      errors,
+    });
+  }
 
   res.json({
-    message: `Processing ${pendingOrders.length} orders`,
-    processed: pendingOrders.length,
+    message: `Successfully processed ${succeeded} orders`,
+    processed: succeeded,
   });
 });
 
