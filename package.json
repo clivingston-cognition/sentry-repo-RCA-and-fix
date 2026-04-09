@@ -1,0 +1,31 @@
+{
+  "name": "sentry-rca-demo",
+  "version": "1.0.0",
+  "description": "Demo API app for Sentry alert RCA and MTTR with event-driven Devin sessions",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "lint": "eslint src/",
+    "test": "jest --verbose",
+    "trigger:null-ref": "bash scripts/trigger-null-ref.sh",
+    "trigger:async-error": "bash scripts/trigger-async-error.sh",
+    "trigger:type-error": "bash scripts/trigger-type-error.sh",
+    "trigger:all": "bash scripts/trigger-all.sh"
+  },
+  "keywords": ["sentry", "demo", "rca", "mttr", "devin"],
+  "license": "MIT",
+  "dependencies": {
+    "@sentry/node": "^9.0.0",
+    "better-sqlite3": "^11.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
