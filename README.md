@@ -1,28 +1,29 @@
 # Sentry RCA & Fix Demo
 
-A demo test harness showing how **Sentry alerts** can trigger **Devin sessions** to automatically perform **Root Cause Analysis (RCA)** and create **fix PRs** — demonstrating event-driven MTTR reduction.
+A demo test harness showing how **Devin** can automatically **poll Sentry** for new issues, perform **Root Cause Analysis (RCA)**, and create **fix PRs** — demonstrating automated MTTR reduction.
 
 ## Architecture
 
 ```
 ┌─────────────┐     ┌─────────┐     ┌──────────────┐     ┌───────────┐
-│  Demo API   │────▶│ Sentry  │────▶│  Webhook /   │────▶│   Devin   │
-│  (Express)  │     │ (Alert) │     │  Devin API   │     │  Session  │
-└─────────────┘     └─────────┘     └──────────────┘     └─────┬─────┘
-                                                               │
-                                                               ▼
-                                                        ┌─────────────┐
-                                                        │  Fix PR on  │
-                                                        │   GitHub    │
-                                                        └─────────────┘
+│  Demo API   │────▶│ Sentry  │     │  Scheduled   │────▶│  Child    │
+│  (Express)  │     │ (Issue) │◀────│  Devin Poll  │     │  Sessions │
+└─────────────┘     └─────────┘     │  (Sentry MCP)│     └─────┬─────┘
+                                    └──────────────┘           │
+                                          ↑                    ▼
+                                    (every N min)        ┌─────────────┐
+                                                         │  Fix PR on  │
+                                                         │   GitHub    │
+                                                         └─────────────┘
 ```
 
-**Flow:**
+**Flow (polling-based):**
 1. The API app has intentional bugs that get triggered by API calls
-2. Sentry SDK captures the errors and creates issues/alerts
-3. A Sentry alert rule sends a webhook to the Devin API
-4. Devin starts an event-driven session, investigates the error, and creates a fix PR
-5. MTTR is measured from alert → PR created
+2. Sentry SDK captures the errors and creates issues
+3. A **scheduled Devin session** polls Sentry via the **Sentry MCP** for new unresolved issues
+4. For each new issue, Devin spawns a **child session** that retrieves the full stack trace via Sentry MCP
+5. The child session performs RCA, implements a fix, and creates a PR
+6. MTTR is measured from issue creation → PR created
 
 ## Quick Start
 
@@ -102,13 +103,13 @@ Error: Failed to process order X: invalid total (NaN)
 
 **Root Cause:** Using `async` callbacks with `.forEach()` instead of `Promise.all()` with `.map()`.
 
-## Setting Up Event-Driven Devin Sessions
+## Setting Up Polling-Based Devin Sessions
 
 ### Step 1: Install the Sentry MCP Integration
 
 The Sentry MCP gives Devin direct access to query issues, stack traces, and event data:
 
-1. Go to your [Devin MCP Marketplace settings](/settings/mcp-marketplace/setup/sentry)
+1. Go to your [Devin MCP Marketplace settings](https://app.devin.ai/settings/mcp-marketplace/setup/sentry)
 2. Click **Install** and provide your Sentry auth token
 3. Devin can now use `mcp_tool: sentry` to list issues, get stack traces, update issue status, etc.
 
@@ -117,47 +118,62 @@ The Sentry MCP gives Devin direct access to query issues, stack traces, and even
 > - `get_issue` — Get full issue details (title, type, frequency, assignee)
 > - `get_latest_event` — Get the latest event with full stack trace + request context
 > - `update_issue` — Resolve issues, assign them, update tags
-> - `search_issues` — Full-text search across issues and alerts
 
-### Step 2: Create a Sentry Alert Rule
+### Step 2: Create a Scheduled Devin Session (Poller)
 
-In your Sentry project:
-1. Go to **Alerts > Create Alert Rule**
-2. Set conditions (e.g., "A new issue is created")
-3. Under **Actions**, select **Send a notification via an integration > Webhooks**
-4. Set the webhook URL to trigger the Devin API (see Step 3)
+Set up a recurring Devin session that polls Sentry for new issues. In Devin's
+[Schedule settings](https://app.devin.ai/settings), create a new scheduled session:
 
-### Step 3: Configure the Devin API Webhook
+- **Name**: `Sentry Issue Poller`
+- **Frequency**: Every 5-10 minutes (e.g., cron `*/5 * * * *`)
+- **Prompt**:
+  ```
+  Poll Sentry for new unresolved issues in the sentry-rca-demo project using
+  the Sentry MCP. For each new unresolved and unassigned issue, spawn a child
+  Devin session to investigate the root cause and create a fix PR in
+  clivingston-cognition/sentry-repo-RCA-and-fix. Assign the issue in Sentry
+  so it won't be picked up again on the next poll.
+  ```
+- **Playbook**: Use the `sentry-poller` playbook (in `.devin/playbooks/sentry-poller.md`)
 
-Create a Sentry webhook that calls the Devin API to start an event-driven session:
+Alternatively, you can create the schedule via the Devin API:
+
+```bash
+curl -X POST "https://api.devin.ai/v1/schedules" \
+  -H "Authorization: Bearer ${DEVIN_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Sentry Issue Poller",
+    "frequency": "*/5 * * * *",
+    "prompt": "Poll Sentry for new unresolved issues using the Sentry MCP. For each new issue, spawn a child session to perform RCA and create a fix PR in clivingston-cognition/sentry-repo-RCA-and-fix."
+  }'
+```
+
+### Step 3: Demo Flow
+
+1. Start the API server: `npm start`
+2. Trigger a bug: `npm run trigger:null-ref`
+3. Sentry captures the error and creates an issue
+4. Within minutes, the scheduled Devin poller detects the new issue via Sentry MCP
+5. Devin spawns a child session that:
+   - Retrieves the full stack trace from Sentry
+   - Performs root cause analysis
+   - Implements a fix and creates a PR
+   - Resolves the issue in Sentry
+6. Measure MTTR: time from Sentry issue creation → PR created
+
+### For a Quick Manual Demo
+
+If you don't want to wait for the poller, you can manually trigger a Devin session:
 
 ```bash
 curl -X POST "https://api.devin.ai/v1/sessions" \
   -H "Authorization: Bearer ${DEVIN_API_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "A new Sentry alert fired for sentry-repo-RCA-and-fix.\n\nSentry Issue: https://your-org.sentry.io/issues/12345/\n\nUse the Sentry MCP to retrieve the full issue details and stack trace, then investigate the root cause in the codebase, implement a fix, and create a PR.",
-    "playbook_id": "<your-playbook-id>"
+    "prompt": "Use the Sentry MCP to check for unresolved issues in the sentry-rca-demo project. For the most recent unresolved issue, retrieve the full stack trace, perform root cause analysis in clivingston-cognition/sentry-repo-RCA-and-fix, implement a fix, and create a PR. Then resolve the issue in Sentry."
   }'
 ```
-
-You can set up a small webhook relay (e.g., on Vercel, AWS Lambda, or Cloudflare Workers) to:
-1. Receive the Sentry webhook payload
-2. Extract the Sentry issue URL
-3. Call the Devin API with the prompt above
-
-Because Devin has the **Sentry MCP** installed, it will pull the full stack trace and error details directly from Sentry — no need to parse the webhook payload yourself.
-
-### Step 4: Demo Flow
-
-1. Start the API server: `npm start`
-2. Trigger a bug: `npm run trigger:null-ref`
-3. Watch Sentry create a new issue
-4. The alert rule fires the webhook → Devin session starts
-5. Devin uses the Sentry MCP to query the issue details and stack trace
-6. Devin investigates the codebase, finds root cause, creates a fix PR
-7. Devin resolves the Sentry issue via MCP
-8. Measure MTTR: time from Sentry alert to PR creation
 
 ## API Endpoints
 
@@ -187,7 +203,8 @@ Tests document both expected behavior and the known bugs.
 sentry-repo-RCA-and-fix/
 ├── .devin/
 │   └── playbooks/
-│       └── sentry-rca.md          # Devin playbook for Sentry RCA
+│       ├── sentry-poller.md       # Scheduled poller — finds new Sentry issues
+│       └── sentry-rca.md          # Child session — RCA & fix for one issue
 ├── scripts/
 │   ├── trigger-null-ref.sh        # Trigger Bug 1
 │   ├── trigger-type-error.sh      # Trigger Bug 2

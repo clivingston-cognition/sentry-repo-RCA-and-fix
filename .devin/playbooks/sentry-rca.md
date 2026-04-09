@@ -1,20 +1,20 @@
 # Sentry Alert RCA Playbook
 
-> This playbook is triggered automatically when a Sentry alert fires.
-> Devin uses the **Sentry MCP integration** to query issue details, then
-> investigates the root cause in the codebase and creates a fix PR.
-
-## Trigger
-
-This playbook is triggered by a **Sentry webhook** via the Devin API, or
-manually by providing a Sentry issue URL. The Sentry MCP integration allows
-Devin to pull full issue details, stack traces, and event data directly.
+> This playbook is used by child sessions spawned from the **Sentry Poller** playbook.
+> Each child session receives a specific Sentry issue ID, uses the **Sentry MCP** to
+> retrieve full details, performs root cause analysis, and creates a fix PR.
 
 ## Prerequisites
 
 - The **Sentry MCP integration** must be installed in your Devin org settings:
-  [Install Sentry MCP](/settings/mcp-marketplace/setup/sentry)
-- The Sentry project must be connected to this repository.
+  [Install Sentry MCP](https://app.devin.ai/settings/mcp-marketplace/setup/sentry)
+- Repo: `clivingston-cognition/sentry-repo-RCA-and-fix`
+
+## Input
+
+This playbook expects the session prompt to include:
+- The **Sentry issue ID** to investigate
+- The **Sentry organization slug** and **project slug**
 
 ## Steps
 
@@ -23,9 +23,6 @@ Devin to pull full issue details, stack traces, and event data directly.
 Use the Sentry MCP tools to get complete issue context:
 
 ```
-# List recent unresolved issues
-mcp_tool: sentry -> list_issues(query="is:unresolved", project="<project-slug>")
-
 # Get full issue details including stack trace
 mcp_tool: sentry -> get_issue(issue_id="<issue-id>")
 
@@ -53,7 +50,7 @@ Extract from the Sentry response:
 - Document:
   - **What**: The exact error and where it occurs
   - **Why**: The root cause (e.g., missing null check, type coercion, unhandled async)
-  - **Impact**: What user-facing behavior is affected (from Sentry's user/event counts)
+  - **Impact**: What user-facing behavior affected (from Sentry's user/event counts)
   - **Fix**: What needs to change
 
 ### 4. Implement the Fix
@@ -73,7 +70,7 @@ Extract from the Sentry response:
 Use the Sentry MCP to update the issue:
 
 ```
-# Mark the issue as resolved (or assign it)
+# Mark the issue as resolved
 mcp_tool: sentry -> update_issue(issue_id="<issue-id>", status="resolved")
 ```
 
