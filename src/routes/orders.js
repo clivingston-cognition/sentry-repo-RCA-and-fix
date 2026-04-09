@@ -63,24 +63,27 @@ router.post("/", (req, res) => {
         throw new Error(`Product ${item.productId} not found`);
       }
 
-      // BUG: no type validation on quantity — string * number = NaN
-      const lineTotal = item.quantity * product.price;
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new TypeError(
+          `Invalid quantity for product ${item.productId}: expected a positive number but got ${JSON.stringify(item.quantity)}`
+        );
+      }
+
+      const lineTotal = quantity * product.price;
 
       db.prepare(
         "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)"
-      ).run(orderId, product.id, Number(item.quantity) || 0, product.price);
+      ).run(orderId, product.id, quantity, product.price);
 
       orderTotal += lineTotal;
     }
 
-    // BUG: orderTotal is NaN if any lineTotal was NaN, but this update
-    // silently stores 0 instead of NaN due to SQLite coercion
     db.prepare("UPDATE orders SET total = ? WHERE id = ?").run(
-      orderTotal || 0,
+      orderTotal,
       orderId
     );
 
-    // Validation check that should catch NaN but is implemented incorrectly
     if (orderTotal < 0) {
       throw new Error("Order total cannot be negative");
     }
@@ -89,15 +92,6 @@ router.post("/", (req, res) => {
   });
 
   const result = createOrder();
-
-  // BUG: NaN fails this check silently — NaN is not > 0 and not < 0
-  if (isNaN(result.total)) {
-    throw new TypeError(
-      `Order total calculation failed: expected a number but got NaN. ` +
-      `Check that all item quantities are numeric values. ` +
-      `Received items: ${JSON.stringify(items)}`
-    );
-  }
 
   res.status(201).json({
     order: {
