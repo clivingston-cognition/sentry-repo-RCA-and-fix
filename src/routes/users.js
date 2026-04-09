@@ -14,14 +14,7 @@ router.get("/", (_req, res) => {
 
 /**
  * GET /api/users/:id
- * Get a single user by ID.
- *
- * 🐛 BUG: Does NOT check if the user exists before accessing properties.
- *    When a non-existent user ID is requested (e.g. /api/users/9999),
- *    `db.prepare(...).get()` returns `undefined`, and accessing
- *    `user.name` throws a TypeError: Cannot read properties of undefined.
- *
- *    This is a classic null-reference bug that Sentry will capture.
+ * Get a single user by ID. Returns 404 if the user does not exist.
  */
 router.get("/:id", (req, res) => {
   const user = getDb()
