@@ -39,8 +39,7 @@ describe("POST /api/orders", () => {
     expect(res.body.order.total).toBe(59.98);
   });
 
-  // This test documents the known bug — string quantities cause NaN totals
-  it("should throw TypeError for string quantity (known bug)", async () => {
+  it("should return 500 with TypeError for non-numeric quantity", async () => {
     const res = await request(app).post("/api/orders").send({
       userId: 1,
       items: [{ productId: 1, quantity: "two" }],
@@ -48,5 +47,6 @@ describe("POST /api/orders", () => {
     expect(res.statusCode).toBe(500);
     expect(res.body.error).toBeDefined();
     expect(res.body.error.type).toBe("TypeError");
+    expect(res.body.error.message).toMatch(/Invalid quantity/);
   });
 });
