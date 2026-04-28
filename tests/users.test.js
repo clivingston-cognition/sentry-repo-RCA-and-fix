@@ -21,15 +21,19 @@ describe("GET /api/users/:id", () => {
     const res = await request(app).get("/api/users/1");
     expect(res.statusCode).toBe(200);
     expect(res.body.user).toBeDefined();
+    expect(res.body.user.displayName).toBeDefined();
   });
 
-  // This test documents the known bug — requesting a non-existent user
-  // causes a TypeError because of a missing null check.
-  it("should throw an error for non-existent user (known bug)", async () => {
+  it("should return 404 for a non-existent user ID", async () => {
     const res = await request(app).get("/api/users/9999");
-    expect(res.statusCode).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.error.type).toBe("TypeError");
+    expect(res.statusCode).toBe(404);
+    expect(res.body.error).toBe("User not found");
+  });
+
+  it("should return 404 for a non-numeric user ID", async () => {
+    const res = await request(app).get("/api/users/abc");
+    expect(res.statusCode).toBe(404);
+    expect(res.body.error).toBe("User not found");
   });
 });
 
